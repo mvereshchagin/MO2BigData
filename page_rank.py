@@ -2,11 +2,13 @@ from typing import Tuple, List, Iterator
 import httplib2
 from bs4 import BeautifulSoup, SoupStrainer
 from collections import namedtuple
+import time
 
 Page = namedtuple('Page', 'Id Url')
 
 pages: List[Page] = []
 
+max_retrieve_count = 5
 max_doc_count = 10
 alpha = 0.15
 
@@ -16,6 +18,8 @@ mapped_pages: List[Tuple[int, float]] = []
 
 
 def main() -> None:
+
+    start = time.time()
 
     for url in start_pages:
         links = retrieve_hyperlinks(url)
@@ -35,10 +39,17 @@ def main() -> None:
         for k, v in map_fn(page.Url, values):
             mapped_pages.append((k, v))
 
+    results: List[Tuple[float, str]] = []
     for doc_id, parts in shuffler():
         rank, _ = reduce_fn(doc_id, parts)
         url = find_url_by_id(doc_id)
+        results.append((rank, url))
+
+    for rank, url in sorted(results):
         print(f'{-rank} {url}')
+
+    print('----------------------------------------------')
+    print(f'total time: {time.time() - start}')
 
 
 def map_fn(link: str, v: Tuple[float, List[str]]) -> Iterator[Tuple[int, float]]:
@@ -57,7 +68,7 @@ def map_fn(link: str, v: Tuple[float, List[str]]) -> Iterator[Tuple[int, float]]
 
 
 def reduce_fn(doc_id: int, parts: List[float]) -> Tuple[float, int]:
-    return - ( (1 - alpha) * sum(parts) + alpha / max_doc_count ), doc_id
+    return - ((1 - alpha) * sum(parts) + alpha / max_doc_count), doc_id
 
 
 def shuffler() -> Iterator[Tuple[int, List[int]]]:
@@ -87,10 +98,10 @@ def find_id(link: str) -> int:
     return -1
 
 
-def find_url_by_id(id: int) -> str or None:
+def find_url_by_id(doc_id: int) -> str or None:
 
     for page in pages:
-        if page.Id == id:
+        if page.Id == doc_id:
             return page.Url
 
     return None
@@ -108,21 +119,29 @@ def add_page(link: str):
 
 def retrieve_hyperlinks(url: str) -> List[str]:
 
-    http = httplib2.Http()
-    status, response = http.request(url)
-
     lst: List[str] = []
 
-    for link in BeautifulSoup(response, parse_only=SoupStrainer('a')):
-        if link.has_attr('href'):
-            href = link['href']
-            if href.startswith("http") or href.startswith("https"):
-                lst.append(href)
-                add_page(href)
+    try:
+        http = httplib2.Http()
+        status, response = http.request(url)
+
+        count = 0
+
+        for link in BeautifulSoup(response, parse_only=SoupStrainer('a')):
+            if link.has_attr('href'):
+                href = link['href']
+                if (href.startswith("http") or href.startswith("https")) and count < max_retrieve_count:
+                    count += 1
+                    lst.append(href)
+                    add_page(href)
+    except:
+        ...
 
     return lst
 
 
 if __name__ == '__main__':
     main()
+
+
 
